@@ -1,0 +1,59 @@
+stages:
+  - validate
+  - test
+  - package
+  - deploy
+
+variables:
+  APP_PORT: "8105"
+
+validate_job:
+  stage: validate
+  image: python:3.12.7-slim
+  script:
+    - test -f Dockerfile
+    - test -f .dockerignore
+    - echo "Validation passed"
+
+unit_tests:
+  stage: test
+  image: python:3.12.7-slim
+  script:
+    - python -m unittest discover -s tests -v
+
+package_job:
+  stage: package
+  image: python:3.12.7-slim
+  script:
+    - mkdir dist
+    - cp converter.py README.md Dockerfile examples.txt dist/
+    - echo "Commit: $CI_COMMIT_SHA" > dist/manifest.txt
+    - echo "Pipeline: $CI_PIPELINE_ID" >> dist/manifest.txt
+    - ls -1 dist >> dist/manifest.txt
+  artifacts:
+    paths:
+      - dist/
+    expire_in: 7 days
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^rc-.*/
+      when: always
+      artifacts:
+        expire_in: 2 days
+    - if: $CI_COMMIT_BRANCH == "main"
+      when: always
+
+deploy_test:
+  stage: deploy
+  image: python:3.12.7-slim
+  script:
+    - echo "Deploying token: $DEPLOY_TOKEN" 
+    - python -c "from converter import km_to_m; assert km_to_m(1.5) == 1500.0, 'Smoke test failed'"
+    - echo "Smoke test passed. 1.5 km = 1500 m" > deployment.txt
+  artifacts:
+    paths:
+      - deployment.txt
+  environment:
+    name: test/converter
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      when: manual
